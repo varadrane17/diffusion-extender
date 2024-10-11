@@ -11,7 +11,7 @@ from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.utils.torch_utils import randn_tensor
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
 
-from controlnet_union import ControlNetModel_Union
+from src.controlnet_union import ControlNetModel_Union
 
 
 def latents_to_rgb(latents):
