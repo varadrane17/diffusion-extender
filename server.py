@@ -145,6 +145,7 @@ async def generate_image(payload: ImagePayload):
             cnet_image, image = cnet_image, image
 
         image = image.convert("RGBA")
+        mask = mask.resize(image.size)
         cnet_image.paste(image, (0, 0), mask)
         # logger.info(f"mask size : {mask.size}  --- Image size : {result_image.size}")
         
