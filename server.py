@@ -104,10 +104,19 @@ async def generate_image(payload: ImagePayload):
         response_ =  {'message': traceback.format_exc(), 'status_code':status_code}
         return JSONResponse(status_code=status_code, content=jsonable_encoder(response_))
     
-    aspect_ratio = source.height / source.width
-    new_width = resize_size
-    new_height = int(resize_size * aspect_ratio)
-    source = source.resize((new_width, new_height), Image.LANCZOS)
+    if source.size[0] > 2048 or source.size[1] > 2048:
+        max_length = 2048
+        # max_dim = max(source.size)
+        aspect_ratio = source.size[0] / source.size[1]   # aspect ratio is width / height = 2498 / 3747 = 0.6666666666666666
+        # width, height = source.size
+
+        if aspect_ratio > 1:    
+            new_width = max_length
+            new_height = int(max_length / aspect_ratio)
+        else:
+            new_width = int(max_length * aspect_ratio)  # new_width = int(2048 * 0.6666666666666666) = 1366
+            new_height = max_length    
+        source = source.resize((new_width, new_height), Image.LANCZOS)
 
     background = Image.new('RGB', target_size, (255, 255, 255))
     background.paste(source, (margin_x, margin_y))
