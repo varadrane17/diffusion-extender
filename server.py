@@ -94,9 +94,12 @@ async def generate_image(payload: ImagePayload):
         num_inference_steps = payload.num_inference_steps
         margin_x = payload.margin_x
         margin_y = payload.margin_y
-        resize_size = max(source.width, source.height)
+        # resize_size = max(source.width, source.height)
+        logger.info(f"Target image size : {target_size}")
+
 
         logger.info(f"Recieved Data for order id {payload.order_id}")
+        logger.info(f"Source image size : {source.size}")
     except:
         status_code = 400
         logger.error(traceback.format_exc())
@@ -118,10 +121,13 @@ async def generate_image(payload: ImagePayload):
             new_height = max_length    
         source = source.resize((new_width, new_height), Image.LANCZOS)
 
+    logger.info(f"Resized image to {source.size}")
+
     background = Image.new('RGB', target_size, (255, 255, 255))
     background.paste(source, (margin_x, margin_y))
 
     mask = Image.new('L', target_size, 255)
+    logger.info(f"Mask size : {mask.size}")
     mask_draw = ImageDraw.Draw(mask)
 
     mask_draw.rectangle([
@@ -131,6 +137,8 @@ async def generate_image(payload: ImagePayload):
 
     cnet_image = background.copy()
     cnet_image.paste(0, (0, 0), mask)
+    logger.info(f"Mask size : {mask.size}")
+    logger.info(f"Cnet image size : {cnet_image.size}")
 
     
     final_prompt = f"high quality, 4k" if payload.prompt_input is None else payload.prompt_input
@@ -154,9 +162,12 @@ async def generate_image(payload: ImagePayload):
             cnet_image, image = cnet_image, image
 
         image = image.convert("RGBA")
-        mask = mask.resize(image.size)
+        # mask = mask.resize(image.size)
+        print("mask.size", mask.size)
+        print("image.size", image.size)
+        image = image.resize(mask.size)
         cnet_image.paste(image, (0, 0), mask)
-        # logger.info(f"mask size : {mask.size}  --- Image size : {result_image.size}")
+        logger.info(f"New Image size : {image.size}  --- Image size : {cnet_image.size}")
         
         output_b64 = img_to_base64(cnet_image)
 
