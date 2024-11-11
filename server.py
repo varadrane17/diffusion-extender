@@ -97,8 +97,12 @@ async def generate_image(payload: ImagePayload):
         # resize_size = max(source.width, source.height)
         logger.info(f"Target image size : {target_size}")
 
+        # resize_size = max(source.width, source.height)
+        logger.info(f"Target image size : {target_size}")
+
 
         logger.info(f"Recieved Data for order id {payload.order_id}")
+        logger.info(f"Source image size : {source.size}")
         logger.info(f"Source image size : {source.size}")
     except:
         status_code = 400
@@ -123,10 +127,13 @@ async def generate_image(payload: ImagePayload):
 
     logger.info(f"Resized image to {source.size}")
 
+    logger.info(f"Resized image to {source.size}")
+
     background = Image.new('RGB', target_size, (255, 255, 255))
     background.paste(source, (margin_x, margin_y))
 
     mask = Image.new('L', target_size, 255)
+    logger.info(f"Mask size : {mask.size}")
     logger.info(f"Mask size : {mask.size}")
     mask_draw = ImageDraw.Draw(mask)
 
@@ -137,6 +144,8 @@ async def generate_image(payload: ImagePayload):
 
     cnet_image = background.copy()
     cnet_image.paste(0, (0, 0), mask)
+    logger.info(f"Mask size : {mask.size}")
+    logger.info(f"Cnet image size : {cnet_image.size}")
     logger.info(f"Mask size : {mask.size}")
     logger.info(f"Cnet image size : {cnet_image.size}")
 
@@ -163,11 +172,9 @@ async def generate_image(payload: ImagePayload):
 
         image = image.convert("RGBA")
         # mask = mask.resize(image.size)
-        print("mask.size", mask.size)
-        print("image.size", image.size)
         image = image.resize(mask.size)
         cnet_image.paste(image, (0, 0), mask)
-        logger.info(f"New Image size : {image.size}  --- Image size : {cnet_image.size}")
+        logger.info(f"Newmask size : {mask.size}  --- Image size : {cnet_image.size}")
         
         output_b64 = img_to_base64(cnet_image)
 
