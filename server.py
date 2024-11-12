@@ -85,7 +85,7 @@ class ImagePayload(BaseModel):
     margin_x : int = None
     margin_y : int = None
 
-@app.post("/generate-image/")
+@app.post("/generate-image")
 async def generate_image(payload: ImagePayload):
     try:
         source = Image.open(requests.get(payload.image_url, stream= True).raw).convert("RGB")

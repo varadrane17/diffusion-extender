@@ -1,7 +1,6 @@
 import ray
 from ray import serve
 from typing import Dict, Any
-from pydantic import BaseModel
 import torch
 import os
 from os import makedirs
@@ -17,9 +16,10 @@ from utils import img_to_base64
 import time
 from safetensors.torch import load_file
 import requests
-
+from starlette.requests import Request
+from pprint import pprint
 # Set up logging
-logger = logging.getLogger('AI-Image-Extender')
+logger = logging.getLogger('ray.serve')
 logger.setLevel(logging.INFO)
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -33,25 +33,15 @@ formatter = logging.Formatter(
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-class ImagePayload(BaseModel):
-    order_id: str
-    image_url: str
-    width: int
-    height: int
-    overlap_width: int
-    num_inference_steps: int
-    resize_option: str
-    prompt_input: str = None
-    margin_x: int = None
-    margin_y: int = None
 
 @serve.deployment(
     ray_actor_options={"num_gpus": 1},
-    autoscaling_config={
-        "min_replicas": 1,
-        "max_replicas": 3,
-        "target_num_ongoing_requests_per_replica": 10,
-    }
+    # autoscaling_config={
+    #     "min_replicas": 1,
+    #     "max_replicas": 3,
+    #     "target_num_ongoing_requests_per_replica": 10,
+
+    # }
 )
 class ImageExtenderDeployment:
     def __init__(self):
@@ -93,16 +83,32 @@ class ImageExtenderDeployment:
         ).to("cuda")
         self.pipe.scheduler = TCDScheduler.from_config(self.pipe.scheduler.config)
 
-    async def __call__(self, request_dict: Dict[str, Any]) -> Dict[str, Any]:
+    async def __call__(self, request: Request) -> Dict[str, Any]:
         try:
-            # Convert dict to Pydantic model for validation
-            payload = ImagePayload(**request_dict)
-            
+            request_path = request.url.path
+            request_method = request.method
+            if request_method != "POST" or request_path != "/generate-image":
+                logger.error(f"Wrong url path {request_path} or method {request_method}")
+                return {
+                "message": "Wrong url path",
+                "status_code": 200,
+            }
+            payload = await request.json()
+            pprint(payload)
             # Load and process image
-            source = Image.open(requests.get(payload.image_url, stream=True).raw).convert("RGB")
-            target_size = (payload.width, payload.height)
+            image_url = payload.get("image_url")
+            width = payload.get("width")
+            height = payload.get("height")
+            overlap_width = payload.get("overlap_width")
+            num_inference_steps = payload.get("num_inference_steps")
+            margin_x = payload.get("margin_x")
+            margin_y = payload.get("margin_y")
+            prompt_input = payload.get("prompt_input")
+            order_id = payload.get("order_id")
+            source = Image.open(requests.get(image_url, stream=True).raw).convert("RGB")
+            target_size = (width, height)
             
-            logger.info(f"Received Data for order id {payload.order_id}")
+            logger.info(f"Received Data for order id {order_id}")
             logger.info(f"Source image size: {source.size}")
 
             # Resize if necessary
@@ -120,15 +126,15 @@ class ImageExtenderDeployment:
 
             # Create background and mask
             background = Image.new('RGB', target_size, (255, 255, 255))
-            background.paste(source, (payload.margin_x, payload.margin_y))
+            background.paste(source, (margin_x, margin_y))
 
             mask = Image.new('L', target_size, 255)
             mask_draw = ImageDraw.Draw(mask)
             mask_draw.rectangle([
-                (payload.margin_x + payload.overlap_width, 
-                 payload.margin_y + payload.overlap_width),
-                (payload.margin_x + source.width - payload.overlap_width, 
-                 payload.margin_y + source.height - payload.overlap_width)
+                (margin_x + overlap_width, 
+                 margin_y + overlap_width),
+                (margin_x + source.width - overlap_width, 
+                 margin_y + source.height - overlap_width)
             ], fill=0)
 
             cnet_image = background.copy()
@@ -136,7 +142,7 @@ class ImageExtenderDeployment:
 
             # Generate image
             t1 = time.time()
-            final_prompt = f"high quality, 4k" if payload.prompt_input is None else payload.prompt_input
+            final_prompt = f"high quality, 4k" if prompt_input is None else prompt_input
             
             (
                 prompt_embeds,
@@ -151,7 +157,7 @@ class ImageExtenderDeployment:
                 pooled_prompt_embeds=pooled_prompt_embeds,
                 negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
                 image=cnet_image,
-                num_inference_steps=payload.num_inference_steps
+                num_inference_steps=num_inference_steps
             ):
                 cnet_image, image = cnet_image, image
 
@@ -162,7 +168,7 @@ class ImageExtenderDeployment:
             
             output_b64 = img_to_base64(cnet_image)
             
-            logger.info(f"Image generated for order id {payload.order_id} in {time.time() - t1} seconds")
+            logger.info(f"Image generated for order id {order_id} in {time.time() - t1} seconds")
             torch.cuda.empty_cache()
             
             return {
@@ -173,7 +179,8 @@ class ImageExtenderDeployment:
 
         except Exception as e:
             logger.error(traceback.format_exc())
-            logger.info(f"Error in generating image for order id {payload.order_id}")
+            logger.info(f"Error in generating image for order id {order_id}")
+            torch.cuda.empty_cache()
             return {
                 "message": str(e),
                 "status_code": 500,
@@ -181,6 +188,7 @@ class ImageExtenderDeployment:
             }
 
 # Initialize Ray and deploy the service
-app = ray.init(address="auto", namespace="image_extender")
-serve.start(detached=True)
-ImageExtenderDeployment.deploy()
+app = ray.init(namespace="image_extender", ignore_reinit_error=True,
+               include_dashboard=True, dashboard_host='0.0.0.0')
+serve.start(detached=True, http_options={"host": "0.0.0.0", "port": 8014})
+image_extender=ImageExtenderDeployment.bind()
