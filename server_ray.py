@@ -18,7 +18,7 @@ from safetensors.torch import load_file
 import requests
 from starlette.requests import Request
 from pprint import pprint
-# Set up logging
+
 logger = logging.getLogger('ray.serve')
 logger.setLevel(logging.INFO)
 
@@ -50,7 +50,6 @@ class ImageExtenderDeployment:
         logger.info("[AI-Image-Extender] : Pipeline has been initialized.")
 
     def _initialize_models(self):
-        # Initialize ControlNet model
         config_file = hf_hub_download(
             "xinsir/controlnet-union-sdxl-1.0",
             filename="config_promax.json",
@@ -66,14 +65,11 @@ class ImageExtenderDeployment:
             controlnet_model, state_dict, model_file, "xinsir/controlnet-union-sdxl-1.0"
         )
         model.to(device="cuda", dtype=torch.float16)
-
-        # Initialize VAE
         vae = AutoencoderKL.from_pretrained(
             "madebyollin/sdxl-vae-fp16-fix", 
             torch_dtype=torch.float16
         ).to("cuda")
 
-        # Initialize Pipeline
         self.pipe = StableDiffusionXLFillPipeline.from_pretrained(
             "SG161222/RealVisXL_V5.0_Lightning",
             torch_dtype=torch.float16,
@@ -82,6 +78,34 @@ class ImageExtenderDeployment:
             variant="fp16",
         ).to("cuda")
         self.pipe.scheduler = TCDScheduler.from_config(self.pipe.scheduler.config)
+
+    def prepare_image(self,image,height,width,margin_x,margin_y,scale):
+        new_input_width = int(width*scale)
+        new_input_height = int(height*scale)
+        input_image = image.resize((new_input_width,new_input_height), Image.LANCZOS)
+        overlap_x = int(new_input_width*margin_x)
+        overlap_y = int(new_input_height*margin_y)
+
+        margin_x = max(0, min(margin_x, new_input_width - new_input_width))
+        margin_y = max(0, min(margin_y, new_input_height - new_input_height))
+
+        background = Image.new('RGB', (width,height), (255, 255, 255))
+        background.paste(input_image, (margin_x, margin_y))
+
+        left_overlap = margin_x + overlap_x
+        right_overlap = margin_x + new_input_width - overlap_x
+        top_overlap = margin_y + overlap_y
+        bottom_overlap = margin_y + new_input_height - overlap_y
+
+        mask = Image.new('L', (width,height), 255)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.rectangle([
+            (left_overlap, top_overlap),
+            (right_overlap, bottom_overlap)
+        ], fill=0)
+
+        return background, mask
+        
 
     async def __call__(self, request: Request) -> Dict[str, Any]:
         try:
@@ -187,7 +211,6 @@ class ImageExtenderDeployment:
                 "error": traceback.format_exc()
             }
 
-# Initialize Ray and deploy the service
 app = ray.init(namespace="image_extender", ignore_reinit_error=True,
                include_dashboard=True, dashboard_host='0.0.0.0')
 serve.start(detached=True, http_options={"host": "0.0.0.0", "port": 8014})

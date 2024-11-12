@@ -7,8 +7,6 @@
 # diffusers
 # fastapi<0.113.0
 # opencv-python
-
-
 accelerate==0.34.2
 aiofiles==23.2.1
 annotated-types==0.7.0
@@ -84,3 +82,4 @@ urllib3==2.2.3
 uvicorn==0.30.6
 websockets==12.0
 zipp==3.20.2 
+ray[serve]
