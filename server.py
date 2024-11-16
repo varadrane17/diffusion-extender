@@ -20,30 +20,26 @@ import requests
 from starlette.requests import Request
 from pprint import pprint
 
-# logger = logging.getLogger('ray.serve')
-logger = logging.getLogger('AI-Image-Extender')
-logger.setLevel(logging.INFO)
-
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-makedirs(os.path.join(BASE_PATH, 'logs'), exist_ok=True)
-path = os.path.join(BASE_PATH, 'logs', 'ai-image-extender.log')
-handler = RotatingFileHandler(path,
-                            maxBytes=2 * 1024 * 1024,
-                            backupCount=5)
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
 
 @serve.deployment(
     ray_actor_options={"num_gpus": 1},
 )
 class ImageExtenderDeployment:
     def __init__(self):
-        logger.info("[AI-Image-Extender] : Initializing pipeline...")
+        self.logger = logging.getLogger('AI-Image-Extender')
+        self.logger.setLevel(logging.INFO)
+        
+        BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+        os.makedirs(os.path.join(BASE_PATH, 'logs'), exist_ok=True)
+        log_path = os.path.join(BASE_PATH, 'logs', 'ai-image-extender.log')
+        
+        handler = RotatingFileHandler(log_path, maxBytes=2 * 1024 * 1024, backupCount=5)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+        self.logger.info("[AI-Image-Extender] : Initializing pipeline...")
         self._initialize_models()
-        logger.info("[AI-Image-Extender] : Pipeline has been initialized.")
+        self.logger.info("[AI-Image-Extender] : Pipeline has been initialized.")
 
     def img_to_base64(self,img: Image.Image) -> str:
         buffered = BytesIO()
@@ -93,11 +89,11 @@ class ImageExtenderDeployment:
             x_position = (main_width - watermark_width) // 2  # Centered on x-axis
             y_position = main_height - watermark_height - int(main_height * 0.02)
             image.paste(watermark, (x_position, y_position), watermark)
-            logger.info(f"Watermark added for order id {order_id}")
+            self.logger.info(f"Watermark added for order id {order_id}")
             return image.convert("RGB")
         except:
-            logger.info(f"Error in adding watermark for order id {order_id}")
-            logger.info(traceback.format_exc())
+            self.logger.info(f"Error in adding watermark for order id {order_id}")
+            self.logger.info(traceback.format_exc())
             return image
 
     def prepare_image(self,image,width,height,margin_x,margin_y,scale):
@@ -128,7 +124,7 @@ class ImageExtenderDeployment:
             request_path = request.url.path
             request_method = request.method
             if request_method != "POST" or request_path != "/generate-image":
-                logger.error(f"Wrong url path {request_path} or method {request_method}")
+                self.logger.error(f"Wrong url path {request_path} or method {request_method}")
                 return {
                 "message": "Wrong url path",
                 "status_code": 200,
@@ -144,21 +140,23 @@ class ImageExtenderDeployment:
                 margin_y = payload.get("margin_y")
                 scale = payload.get("scale")
                 order_id = payload.get("order_id")
+                user_type = payload.get("user_type") 
 
                 source = Image.open(requests.get(image_url, stream=True).raw).convert("RGB")
                 
-                logger.info(f"Received Data for order id {order_id}")
-                logger.info(f"Source image size: {source.size}")
+                self.logger.info(f"Received Data for order id {order_id}")
+                self.logger.info(f"Source image size: {source.size}")
 
             except Exception as e:
-                logger.error(traceback.format_exc())
-                logger.info(f"Error in generating image for order id {order_id}")
+                self.logger.error(traceback.format_exc())
+                self.logger.info(f"Error in generating image for order id {order_id}")
                 torch.cuda.empty_cache()
                 return {
                     "message": str(e),
                     "status_code": 422,
                     "error": traceback.format_exc(),
-                    "output_image_url": None
+                    "output_doc": None,
+                    "model_inference_time": None
                 }
             # Resize if necessary
             # if source.size[0] > 2048 or source.size[1] > 2048:
@@ -202,41 +200,48 @@ class ImageExtenderDeployment:
                 cnet_image.paste(image, (0, 0), mask)
             
                 # output_b64 = img_to_base64(cnet_image)
+                
                 image_without_watermark = cnet_image
-                image_with_watermark = self.add_watermark(order_id, image_without_watermark)
-                logger.info(f"Model inference time : {time.time() - t2}")
-                logger.info(f"Total Processing time for order id {order_id} in {time.time() - t1} seconds")
-                torch.cuda.empty_cache()
+                t3 = time.time()
+                model_inference_time = t3 - t2
+                self.logger.info(f"Model inference time : {model_inference_time}")
+                # output_image_url_list.append(self.img_to_base64(image_without_watermark))
+                if user_type == "FREE":
+                    image_with_watermark = self.add_watermark(order_id, image_without_watermark)
+                    # output_image_url_list.append(self.img_to_base64(image_with_watermark))
+                self.logger.info(f"Total Processing time for order id {order_id} in {time.time() - t1} seconds")
+                dummy_image_url = "https://phot-user-uploads.s3.us-east-2.amazonaws.com/frontend_upload/file_drops/11bd44a0-d2ee-479d-889d-b5a048b3a157.jpeg"
+                output_doc = {"0" : {"without_watermark" : dummy_image_url , "with_watermark" : dummy_image_url if user_type == "FREE" else None}}
 
-                output_image_url_list = []
-                output_image_url_list.append(self.img_to_base64(image_with_watermark))
-                output_image_url_list.append(self.img_to_base64(image_without_watermark))
                 
-                
+                torch.cuda.empty_cache()
                 return {
                 "message": "success",
                 "status_code": 200,
-                "output_image_url": output_image_url_list
+                "output_doc": output_doc,
+                "model_inference_time": model_inference_time
                 }
             except Exception as e:
-                logger.error(traceback.format_exc())
-                logger.info(f"Model error for order id {order_id}")
+                self.logger.error(traceback.format_exc())
+                self.logger.info(f"Model error for order id {order_id}")
                 torch.cuda.empty_cache()
                 return {
                     "message": str(e),
                     "status_code": 500,
                     "error": traceback.format_exc(),
-                    "output_image_url": None
+                    "output_doc": None,
+                    "model_inference_time": None
                 }
         except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.info(f"Error in generating image for order id {order_id}")
+            self.logger.error(traceback.format_exc())
+            self.logger.info(f"Error in generating image for order id {order_id}")
             torch.cuda.empty_cache()
             return {
                 "message": str(e),
                 "status_code": 500,
                 "error": traceback.format_exc(),
-                "output_image_url": None
+                "output_doc": None,
+                "model_inference_time": None
             }
 
 app = ray.init(namespace="image_extender", ignore_reinit_error=True,

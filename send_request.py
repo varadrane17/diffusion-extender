@@ -13,6 +13,7 @@ payload = {
     "num_inference_steps": 6,
     "margin_x": 100,
     "margin_y": 100,
+    "user_type": "FREE"
 }
 response = requests.post(url, json=payload)
 print(response.status_code)
