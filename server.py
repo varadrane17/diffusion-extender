@@ -12,14 +12,16 @@ from src.pipeline_fill_sd_xl import StableDiffusionXLFillPipeline
 import logging
 from logging.handlers import RotatingFileHandler
 import traceback
-from utils import img_to_base64
+import base64
+from io import BytesIO
 import time
 from safetensors.torch import load_file
 import requests
 from starlette.requests import Request
 from pprint import pprint
 
-logger = logging.getLogger('ray.serve')
+# logger = logging.getLogger('ray.serve')
+logger = logging.getLogger('AI-Image-Extender')
 logger.setLevel(logging.INFO)
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +44,11 @@ class ImageExtenderDeployment:
         logger.info("[AI-Image-Extender] : Initializing pipeline...")
         self._initialize_models()
         logger.info("[AI-Image-Extender] : Pipeline has been initialized.")
+
+    def img_to_base64(self,img: Image.Image) -> str:
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode()
 
     def _initialize_models(self):
         config_file = hf_hub_download(
@@ -74,11 +81,11 @@ class ImageExtenderDeployment:
         self.pipe.scheduler = TCDScheduler.from_config(self.pipe.scheduler.config)
         self.pipe.enable_vae_slicing()
 
-    def add_watermark(order_id, image):
+    def add_watermark(self,order_id, image):
     
         try:
             image = image.convert("RGBA")
-            watermark = Image.open(os.path.join(BASE_PATH, "watermark.png")).convert("RGBA")
+            watermark = Image.open(os.path.join("assets", "watermark.png")).convert("RGBA")
             main_width, main_height = image.size
             watermark_height = int(main_height * 0.07)  # 7% of the main image's height
             watermark = watermark.resize((int(watermark.width * (watermark_height / watermark.height)), watermark_height))
@@ -93,7 +100,7 @@ class ImageExtenderDeployment:
             logger.info(traceback.format_exc())
             return image
 
-    def prepare_image(image,width,height,margin_x,margin_y,scale):
+    def prepare_image(self,image,width,height,margin_x,margin_y,scale):
         new_input_width = int(image.width*scale)
         new_input_height = int(image.height*scale)
         input_image = image.resize((new_input_width,new_input_height), Image.LANCZOS)
@@ -167,7 +174,7 @@ class ImageExtenderDeployment:
             #     logger.info(f"Resized image to {source.size}")
             try :
                 t1 = time.time()
-                background, mask = self.prepare_image(source, width, height, margin_x, margin_y, scale,num_inference_steps)
+                background, mask = self.prepare_image(source, width, height, margin_x, margin_y, scale)
                 cnet_image = background.copy()
                 cnet_image.paste(0, (0, 0), mask)
                 t2 = time.time()
@@ -202,6 +209,8 @@ class ImageExtenderDeployment:
                 torch.cuda.empty_cache()
 
                 output_image_url_list = []
+                output_image_url_list.append(self.img_to_base64(image_with_watermark))
+                output_image_url_list.append(self.img_to_base64(image_without_watermark))
                 
                 
                 return {
