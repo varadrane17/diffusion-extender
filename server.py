@@ -48,14 +48,14 @@ class ImageExtenderDeployment:
         img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode()
 
-    def get_output_urls(self,image):
+    def get_output_urls(self,image,image_extension):
         static_url = "https://static-cb2.phot.ai/extender/"
         date_folder = datetime.now().strftime("%Y-%m-%d")
         output_dir = "/storage/images_log"
         os.makedirs(output_dir, exist_ok=True)
         save_dir = os.path.join(output_dir, date_folder)
         os.makedirs(save_dir, exist_ok=True)
-        file_name = f"{str(uuid.uuid4())}.webp"
+        file_name = f"{str(uuid.uuid4())}.{image_extension}"
         image.save(os.path.join(save_dir, file_name))
         return os.path.join(static_url, date_folder, file_name)
 
@@ -155,7 +155,8 @@ class ImageExtenderDeployment:
                 margin_y = payload.get("margin_y")
                 scale = payload.get("scale")
                 order_id = payload.get("order_id")
-                user_type = payload.get("user_type") 
+                user_type = payload.get("user_type")
+                image_extension = payload.get("image_extension")
 
                 source = Image.open(requests.get(image_url, stream=True).raw).convert("RGB")
                 
@@ -220,10 +221,10 @@ class ImageExtenderDeployment:
                 t3 = time.time()
                 model_inference_time = t3 - t2
                 self.logger.info(f"Model inference time : {model_inference_time}")
-                image_without_watermark_url = self.get_output_urls(image_without_watermark)
+                image_without_watermark_url = self.get_output_urls(image_without_watermark,image_extension)
                 if user_type == "FREE":
                     image_with_watermark = self.add_watermark(order_id, image_without_watermark)
-                    image_with_watermark_url = self.get_output_urls(image_with_watermark)
+                    image_with_watermark_url = self.get_output_urls(image_with_watermark,image_extension)
                 self.logger.info(f"Total Processing time for order id {order_id} in {time.time() - t1} seconds")
                 
                 output_doc = {"0" : {"without_watermark" : image_without_watermark_url , "with_watermark" : image_with_watermark_url if user_type == "FREE" else None}}
