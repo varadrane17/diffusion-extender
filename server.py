@@ -19,6 +19,8 @@ from safetensors.torch import load_file
 import requests
 from starlette.requests import Request
 from pprint import pprint
+import uuid
+from datetime import datetime
 
 
 @serve.deployment(
@@ -45,6 +47,18 @@ class ImageExtenderDeployment:
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode()
+
+    def get_output_urls(self,image):
+        static_url = "https://static-cb2.phot.ai/extender/"
+        date_folder = datetime.now().strftime("%Y-%m-%d")
+        output_dir = "/storage/images_log"
+        os.makedirs(output_dir, exist_ok=True)
+        save_dir = os.path.join(output_dir, date_folder)
+        os.makedirs(save_dir, exist_ok=True)
+        file_name = f"{str(uuid.uuid4())}.webp"
+        image.save(os.path.join(save_dir, file_name))
+        return os.path.join(static_url, date_folder, file_name)
+
 
     def _initialize_models(self):
         config_file = hf_hub_download(
@@ -76,6 +90,7 @@ class ImageExtenderDeployment:
         ).to("cuda")
         self.pipe.scheduler = TCDScheduler.from_config(self.pipe.scheduler.config)
         self.pipe.enable_vae_slicing()
+        
 
     def add_watermark(self,order_id, image):
     
@@ -205,13 +220,13 @@ class ImageExtenderDeployment:
                 t3 = time.time()
                 model_inference_time = t3 - t2
                 self.logger.info(f"Model inference time : {model_inference_time}")
-                # output_image_url_list.append(self.img_to_base64(image_without_watermark))
+                image_without_watermark_url = self.get_output_urls(image_without_watermark)
                 if user_type == "FREE":
                     image_with_watermark = self.add_watermark(order_id, image_without_watermark)
-                    # output_image_url_list.append(self.img_to_base64(image_with_watermark))
+                    image_with_watermark_url = self.get_output_urls(image_with_watermark)
                 self.logger.info(f"Total Processing time for order id {order_id} in {time.time() - t1} seconds")
-                dummy_image_url = "https://phot-user-uploads.s3.us-east-2.amazonaws.com/frontend_upload/file_drops/11bd44a0-d2ee-479d-889d-b5a048b3a157.jpeg"
-                output_doc = {"0" : {"without_watermark" : dummy_image_url , "with_watermark" : dummy_image_url if user_type == "FREE" else None}}
+                
+                output_doc = {"0" : {"without_watermark" : image_without_watermark_url , "with_watermark" : image_with_watermark_url if user_type == "FREE" else None}}
 
                 
                 torch.cuda.empty_cache()
