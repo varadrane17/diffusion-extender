@@ -51,7 +51,7 @@ class ImageExtenderDeployment:
     def get_output_urls(self,image,image_extension):
         static_url = "https://static-cb2.phot.ai/extender/"
         date_folder = datetime.now().strftime("%Y-%m-%d")
-        output_dir = "/storage/images_log"
+        output_dir = "/storage/images"
         os.makedirs(output_dir, exist_ok=True)
         save_dir = os.path.join(output_dir, date_folder)
         os.makedirs(save_dir, exist_ok=True)
@@ -117,8 +117,8 @@ class ImageExtenderDeployment:
         input_image = image.resize((new_input_width,new_input_height), Image.LANCZOS)
         overlap_x = 42
         overlap_y = 42
-        margin_x = max(0, min(margin_x, new_input_width - new_input_width))
-        margin_y = max(0, min(margin_y, new_input_height - new_input_height))
+        # margin_x = max(0, min(margin_x, new_input_width - new_input_width))
+        # margin_y = max(0, min(margin_y, new_input_height - new_input_height))
         background = Image.new('RGB', (width,height), (255, 255, 255))
         background.paste(input_image, (margin_x, margin_y))
         left_overlap = margin_x + overlap_x
